@@ -1,0 +1,10 @@
+# Core
+transformers>=5.20
+jiwer>=3.0
+librosa>=0.10
+soundfile>=0.12
+
+# Apple Silicon runtimes
+torch>=2.15
+mlx-audio>=0.6
+parakeet-mlx>=0.7

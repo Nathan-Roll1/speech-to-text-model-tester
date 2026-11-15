@@ -1,0 +1,17 @@
+# corpora & audio (never commit)
+data/
+samples/
+*.wav
+*.aiff
+*.flac
+*.tar.gz
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# outputs at repo root (results/ keeps curated hyp_*.json + RESULTS.md)
+/hyp_*.json
+/_out*
+/vox_run.log
