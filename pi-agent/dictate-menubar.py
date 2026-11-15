@@ -59,40 +59,68 @@ IDLE, REC, BUSY = "idle", "recording", "busy"
 
 def notify(title, text=""):
     print(f"notify: {title} | {text}", flush=True)
+    # osascript channel — the one proven to display banners on this machine
     try:
-        rumps.notification("Dictation", title, text)
+        subprocess.run(
+            ["osascript", "-e",
+             f'display notification {json.dumps(str(text)[:200])} '
+             f'with title "Dictation" subtitle {json.dumps(str(title)[:80])}'],
+            capture_output=True, timeout=5)
     except Exception as e:
         print(f"notify failed: {type(e).__name__}: {e}", flush=True)
 
 
-def _send_paste_keystroke() -> None:
-    """Synthetic ⌘V. Chromium ignores raw CGEvent keystrokes, so try System
-    Events first (what text-expanders use), falling back to pynput."""
-    script = 'tell application "System Events" to keystroke "v" using command down'
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+# Chromium-family apps that swallow session-level synthetic ⌘V
+STUBBORN = ("helium", "chrom", "brave", "vivaldi", "edge", "arc", "orbit")
+
+
+def _send_paste_keystroke(bundle_id="", pid=None):
+    """Synthetic ⌘V. Chromium forks ignore session-posted events — post
+    straight into their PID instead; everyone else gets System Events."""
+    if pid and any(s in (bundle_id or "").lower() for s in STUBBORN):
+        try:
+            from Quartz import (CGEventCreateKeyboardEvent, CGEventSetFlags,
+                                CGEventPostToPid, kCGEventFlagMaskCommand)
+            for down in (True, False):
+                ev = CGEventCreateKeyboardEvent(None, 9, down)  # keycode 9 = V
+                CGEventSetFlags(ev, kCGEventFlagMaskCommand)
+                CGEventPostToPid(pid, ev)
+            print("paste method: CGEventPostToPid", flush=True)
+            return
+        except Exception as e:
+            print(f"PostToPid failed: {type(e).__name__}: {e}", flush=True)
+    r = subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to keystroke "v" using command down'],
+        capture_output=True, timeout=5)
     if r.returncode == 0:
+        print("paste method: osascript", flush=True)
         return
     print(f"osascript paste failed ({r.returncode}): {r.stderr.decode()[:120]}", flush=True)
     c = keyboard.Controller()
     c.press(keyboard.Key.cmd)
     c.tap("v")
     c.release(keyboard.Key.cmd)
+    print("paste method: pynput", flush=True)
 
 
 def paste_at_cursor(text: str) -> str:
     """Clipboard swap + synthetic ⌘V. Requires Accessibility for Python.
     Returns the name of the app that had focus (the paste target)."""
-    target = "?"
+    target, bundle_id, pid = "?", "", None
     try:
         from AppKit import NSWorkspace
-        target = NSWorkspace.sharedWorkspace().frontmostApplication().localizedName()
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        target = app.localizedName()
+        bundle_id = app.bundleIdentifier() or ""
+        pid = app.processIdentifier()
     except Exception as e:
         print(f"frontmost probe failed: {type(e).__name__}: {e}", flush=True)
     old = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
     subprocess.run(["pbcopy"], input=text.encode(), check=False)
     time.sleep(0.05)
     try:
-        _send_paste_keystroke()
+        _send_paste_keystroke(bundle_id, pid)
         time.sleep(0.6)  # let the target app read the clipboard
     finally:
         subprocess.run(["pbcopy"], input=old.encode(), check=False)
