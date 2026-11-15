@@ -99,21 +99,39 @@ def _sanitize_for_typing(text: str) -> str:
     return text.replace("\r", " ").replace("\n", " ").replace("\t", " ")
 
 
+def _type_text_quartz(text: str) -> bool:
+    """Type via CGEvent unicode injection: each event carries its own text
+    with flags=0 — immune to caps-lock latches, held modifiers, and keyboard
+    layout (the cause of the ALL-CAPS bug). Chunks of 20 chars per event."""
+    try:
+        from Quartz import (CGEventCreateKeyboardEvent,
+                            CGEventKeyboardSetUnicodeString,
+                            CGEventPost, kCGHIDEventTap)
+        for i in range(0, len(text), 20):
+            chunk = text[i:i + 20]
+            for down in (True, False):
+                ev = CGEventCreateKeyboardEvent(None, 0, down)
+                CGEventKeyboardSetUnicodeString(ev, len(chunk), chunk)
+                CGEventPost(kCGHIDEventTap, ev)
+            time.sleep(0.02)
+        print("deliver method: typing (quartz unicode)", flush=True)
+        return True
+    except Exception as e:
+        print(f"quartz typing failed: {type(e).__name__}: {e}", flush=True)
+        return False
+
+
 def _type_text(text: str) -> bool:
-    # Neutralize held modifiers first — if the user's stop-press (⌘⇧D) is
-    # still physically held when we type, every letter comes out SHIFTED.
-    subprocess.run(
-        ["osascript", "-e",
-         'tell application "System Events" to key up shift\n'
-         'key up command\nkey up option\nkey up control'],
-        capture_output=True, timeout=5)
+    if _type_text_quartz(_sanitize_for_typing(text)):
+        return True
+    # fallback: System Events keystroke (layout+modifier sensitive)
     t = _sanitize_for_typing(text).replace("\\", "\\\\").replace('"', '\\"')
     r = subprocess.run(
         ["osascript", "-e",
          f'tell application "System Events" to keystroke "{t}"'],
         capture_output=True, timeout=15)
     if r.returncode == 0:
-        print("deliver method: typing", flush=True)
+        print("deliver method: typing (System Events)", flush=True)
         return True
     print(f"typing failed: {r.stderr.decode()[:120]}", flush=True)
     return False

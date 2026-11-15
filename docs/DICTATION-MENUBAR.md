@@ -23,13 +23,25 @@ TextExpander has always done in browsers. Chromium forks filter synthetic
 
 ## ALL-CAPS bug
 
-`keystroke` inherits **currently-held physical modifiers**. Users hold the
-stop-press ⌘**⇧**D until the banner changes, so ⇧ is still physically down
-when typing fires ~1 s later → every letter shifted. A **synthetic**
-`key up` cannot override a **physically held** key (macOS tracks HID state
-separately). Real fix: the pynput listener tracks live ⌘/⇧ state
-(`MODS`), and delivery **waits for the physical release** before typing
-(`_wait_mods_released`, 10 s cap).
+Two stacked causes, both fixed:
+
+1. **Phantom caps-lock latch**: the HID event-source state had
+   `kCGEventFlagMaskAlphaShift` set even though the user's physical caps
+   lock was off — manual typing unaffected, but *synthetic* typing
+   (System Events `keystroke`, which maps through the layout honoring
+   that state) came out ALL CAPS. Diagnosed via
+   `CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState)`;
+   cleared by toggling keycode 57 synthetically.
+2. **Held modifiers**: users hold the stop-press ⌘**⇧**D through the
+   banner change; `keystroke` inherits held modifiers, shifting every
+   letter. A synthetic `key up` cannot override a physically held key.
+
+Final delivery method (immune to both): **CGEvent unicode injection** —
+`CGEventKeyboardSetUnicodeString` carries the text inside each event with
+flags=0, chunks of 20 chars; no layout mapping, no modifier state, no
+caps state can touch it. System Events `keystroke` kept only as fallback.
+Also: `_wait_mods_released` (pynput tracks live ⌘/⇧) protects the
+clipboard-paste path.
 
 ## macOS 27 permission saga (exact order matters)
 
