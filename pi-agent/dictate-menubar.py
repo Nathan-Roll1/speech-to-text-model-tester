@@ -65,8 +65,15 @@ def notify(title, text=""):
         print(f"notify failed: {type(e).__name__}: {e}", flush=True)
 
 
-def paste_at_cursor(text: str) -> None:
-    """Clipboard swap + synthetic ⌘V. Requires Accessibility for Python."""
+def paste_at_cursor(text: str) -> str:
+    """Clipboard swap + synthetic ⌘V. Requires Accessibility for Python.
+    Returns the name of the app that had focus (the paste target)."""
+    target = "?"
+    try:
+        from AppKit import NSWorkspace
+        target = NSWorkspace.sharedWorkspace().frontmostApplication().localizedName()
+    except Exception as e:
+        print(f"frontmost probe failed: {type(e).__name__}: {e}", flush=True)
     old = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
     subprocess.run(["pbcopy"], input=text.encode(), check=False)
     time.sleep(0.05)
@@ -78,6 +85,7 @@ def paste_at_cursor(text: str) -> None:
         time.sleep(0.6)  # let the target app read the clipboard
     finally:
         subprocess.run(["pbcopy"], input=old.encode(), check=False)
+    return target
 
 
 class DictateApp(rumps.App):
@@ -188,7 +196,7 @@ class DictateApp(rumps.App):
         try:
             self._rec_err = open(REC_ERR_LOG, "ab")
             self.proc = subprocess.Popen(
-                [REC_BIN, "-q", "-r", "16000", "-c", "1", self.wav, "gain", "12"],
+                [REC_BIN, "-q", "-r", "16000", "-c", "1", self.wav],
                 stdout=subprocess.DEVNULL, stderr=self._rec_err,
             )
         except FileNotFoundError:
@@ -286,10 +294,10 @@ class DictateApp(rumps.App):
         print(f"asr returned {len(text)} chars: {text[:100]!r}", flush=True)
 
         if text:
-            notify("✓ pasted", text[:120])
             try:
-                paste_at_cursor(text)
-                print("paste done", flush=True)
+                target = paste_at_cursor(text)
+                print(f"paste done -> {target}", flush=True)
+                notify(f"✓ pasted to {target}", text[:120])
             except Exception as e:
                 notify("paste failed", f"{type(e).__name__}: {str(e)[:80]}")
         else:
