@@ -125,7 +125,10 @@ pair in `speechtester/engines.py`.
 `com.roman.dictate-menubar`). **⌘⇧D anywhere** (FSNotes, Mail, browser…)
 toggles recording; on stop the transcript is pasted at the cursor
 (clipboard swap + synthetic ⌘V). Same local Musci engine, audio stays on
-the machine.
+the machine. Visual state cues: floating red **● REC** banner (AppKit,
+above all apps/spaces) → orange **⏳ transcribing…** → hidden on paste;
+macOS toasts (Python needs notification permission); start/stop beeps;
++12 dB capture gain.
 
 One-time permissions: System Settings → Privacy & Security →
 **Accessibility** and **Input Monitoring** → add the venv's *Python*;

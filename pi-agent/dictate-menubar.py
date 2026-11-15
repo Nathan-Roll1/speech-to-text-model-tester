@@ -16,6 +16,9 @@ Engine: resident musci-server on 127.0.0.1:31046 (LaunchAgent
 com.roman.musci-server). Audio never leaves this machine.
 """
 import json
+import os
+import queue
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -25,17 +28,41 @@ import urllib.request
 import rumps
 from pynput import keyboard
 
+try:
+    from Foundation import NSMakeRect
+    from AppKit import (NSWindow, NSColor, NSTextField, NSFont,
+                        NSScreen, NSWindowCollectionBehaviorCanJoinAllSpaces,
+                        NSWindowCollectionBehaviorFullScreenAuxiliary,
+                        NSCenterTextAlignment)
+    HAS_APPKIT = True
+except Exception as _e:
+    print(f"AppKit overlay unavailable: {_e}", flush=True)
+    HAS_APPKIT = False
+
 MUSCI_URL = "http://127.0.0.1:31046/transcribe"
 HOTKEY = "<cmd>+<shift>+d"
+REC_BIN = shutil.which("rec") or "/opt/homebrew/bin/rec"  # launchd PATH has no /opt/homebrew/bin
+REC_ERR_LOG = os.path.expanduser("~/.pi/agent/logs/dictate-menubar-rec.err")
+WAV_PATH = os.path.expanduser("~/.pi/agent/logs/dictate-last.wav")
+AFPLAY = "/usr/bin/afplay"
+
+
+def beep(sound):
+    """Audible state cue: Tink=start, Pop=stop. Non-blocking."""
+    path = f"/System/Library/Sounds/{sound}.aiff"
+    if os.path.exists(AFPLAY) and os.path.exists(path):
+        subprocess.Popen([AFPLAY, path],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 IDLE, REC, BUSY = "idle", "recording", "busy"
 
 
 def notify(title, text=""):
+    print(f"notify: {title} | {text}", flush=True)
     try:
         rumps.notification("Dictation", title, text)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"notify failed: {type(e).__name__}: {e}", flush=True)
 
 
 def paste_at_cursor(text: str) -> None:
@@ -61,6 +88,8 @@ class DictateApp(rumps.App):
         self.wav = None
         self.cancelled = False
         self.title = "🎙"
+        self._overlay = None
+        self._ovq = queue.Queue()  # overlay ops from any thread -> main thread
 
         self.menu = [
             rumps.MenuItem("Start / Stop dictation"),
@@ -74,9 +103,73 @@ class DictateApp(rumps.App):
         self.listener.start()
         print("global hotkey registered:", HOTKEY, flush=True)
 
+        # main-thread pump that applies overlay changes
+        self._timer = rumps.Timer(self._drain_overlay, 0.10)
+        self._timer.start()
+        print("overlay pump started, AppKit:", HAS_APPKIT, flush=True)
+
+    # ---------------- visual overlay (main thread only) ----------------
+
+    def _drain_overlay(self, _sender=None):
+        try:
+            while True:
+                op, text, rgb = self._ovq.get_nowait()
+                if op == "show":
+                    self._overlay_show(text, rgb)
+                else:
+                    self._overlay_hide()
+        except queue.Empty:
+            pass
+
+    def _overlay_show(self, text, rgb):
+        if not HAS_APPKIT:
+            return
+        try:
+            if self._overlay is None:
+                win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                    NSMakeRect(0, 0, 260, 64), 0, 2, False)
+                win.setLevel_(25)  # NSStatusWindowLevel — above all normal windows
+                win.setOpaque_(False)
+                win.setHasShadow_(True)
+                win.setIgnoresMouseEvents_(True)
+                win.setCollectionBehavior_(
+                    NSWindowCollectionBehaviorCanJoinAllSpaces |
+                    NSWindowCollectionBehaviorFullScreenAuxiliary)
+                label = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 0, 260, 64))
+                label.setEditable_(False)
+                label.setBordered_(False)
+                label.setDrawsBackground_(False)
+                label.setAlignment_(NSCenterTextAlignment)
+                label.setFont_(NSFont.boldSystemFontOfSize_(24))
+                label.setTextColor_(NSColor.whiteColor())
+                win.contentView().addSubview_(label)
+                self._overlay = (win, label)
+            win, label = self._overlay
+            win.setBackgroundColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(
+                rgb[0], rgb[1], rgb[2], 0.94))
+            label.setStringValue_(text)
+            frame = NSScreen.mainScreen().frame()
+            win.setFrameOrigin_((frame.origin.x + (frame.size.width - 260) / 2,
+                                 frame.origin.y + frame.size.height - 140))
+            win.orderFrontRegardless()
+        except Exception as e:
+            print(f"overlay show failed: {type(e).__name__}: {e}", flush=True)
+
+    def _overlay_hide(self):
+        if not HAS_APPKIT or self._overlay is None:
+            return
+        try:
+            self._overlay[0].orderOut_(None)
+        except Exception as e:
+            print(f"overlay hide failed: {type(e).__name__}: {e}", flush=True)
+
+    def _ov(self, op, text="", rgb=(1, 1, 1)):
+        self._ovq.put((op, text, rgb))
+
     # ---------------- core toggle ----------------
 
     def toggle(self, _=None):
+        print(f"hotkey pressed, state={self.state}", flush=True)
         if self.state == IDLE:
             self.start()
         elif self.state == REC:
@@ -86,17 +179,24 @@ class DictateApp(rumps.App):
         if self.state != IDLE:
             return
         self.cancelled = False
-        self.wav = tempfile.mktemp(prefix="dictate-global-", suffix=".wav")
+        self.wav = WAV_PATH
         try:
+            os.remove(self.wav)
+        except OSError:
+            pass
+        beep("Tink")
+        try:
+            self._rec_err = open(REC_ERR_LOG, "ab")
             self.proc = subprocess.Popen(
-                ["rec", "-q", "-r", "16000", "-c", "1", self.wav],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                [REC_BIN, "-q", "-r", "16000", "-c", "1", self.wav, "gain", "12"],
+                stdout=subprocess.DEVNULL, stderr=self._rec_err,
             )
         except FileNotFoundError:
-            notify("sox missing", "brew install sox")
+            notify("sox missing", REC_BIN)
             return
         self.state = REC
         self.title = "●"
+        self._ov("show", "● REC", (1.0, 0.22, 0.19))
         print("recording…", flush=True)
 
     def stop(self):
@@ -104,6 +204,8 @@ class DictateApp(rumps.App):
             return
         self.state = BUSY
         self.title = "⏳"
+        self._ov("show", "⏳ transcribing…", (1.0, 0.60, 0.0))
+        beep("Pop")
         if self.proc:
             self.proc.terminate()
             try:
@@ -127,6 +229,7 @@ class DictateApp(rumps.App):
                 self.proc.terminate()
         self.state = IDLE
         self.title = "🎙"
+        self._ov("hide")
 
     @rumps.clicked("Check server")
     def check_server(self, _=None):
@@ -151,9 +254,26 @@ class DictateApp(rumps.App):
         try:
             audio = open(self.wav, "rb").read()
         except OSError as e:
-            notify("recording file missing", str(e)[:80])
+            rec_err = ""
+            try:
+                rec_err = open(REC_ERR_LOG).read()[-120:]
+            except OSError:
+                pass
+            notify("recording failed", (f"{e}"[:60] + " | " + rec_err)[-120:])
             self._done()
             return
+        print(f"posting {len(audio)} bytes to musci-server…", flush=True)
+        try:
+            import numpy as np
+            import soundfile as sf
+            w, sr = sf.read(self.wav, dtype="float32")
+            rms = float(np.sqrt((w.astype(np.float64) ** 2).mean()))
+            peak = float(np.abs(w).max())
+            print(f"audio: sr={sr} dur={len(w)/sr:.1f}s rms={rms:.5f} peak={peak:.4f}", flush=True)
+            if rms < 1e-4:
+                notify("recording is silent", "check microphone input device/level")
+        except Exception as e:
+            print(f"audio probe skipped: {type(e).__name__}: {e}", flush=True)
         try:
             req = urllib.request.Request(MUSCI_URL, data=audio,
                 headers={"Content-Type": "audio/wav"}, method="POST")
@@ -163,9 +283,15 @@ class DictateApp(rumps.App):
             notify("ASR failed", f"{type(e).__name__}: {str(e)[:80]}")
             self._done()
             return
+        print(f"asr returned {len(text)} chars: {text[:100]!r}", flush=True)
 
         if text:
-            paste_at_cursor(text)
+            notify("✓ pasted", text[:120])
+            try:
+                paste_at_cursor(text)
+                print("paste done", flush=True)
+            except Exception as e:
+                notify("paste failed", f"{type(e).__name__}: {str(e)[:80]}")
         else:
             notify("no speech detected")
         self._done()
@@ -173,6 +299,7 @@ class DictateApp(rumps.App):
     def _done(self):
         self.state = IDLE
         self.title = "🎙"
+        self._ov("hide")
         print("cycle complete", flush=True)
 
 
