@@ -74,57 +74,76 @@ def notify(title, text=""):
 STUBBORN = ("helium", "chrom", "brave", "vivaldi", "edge", "arc", "orbit")
 
 
-def _send_paste_keystroke(bundle_id="", pid=None):
-    """Synthetic ⌘V. Chromium forks ignore session-posted events — post
-    straight into their PID instead; everyone else gets System Events."""
-    if pid and any(s in (bundle_id or "").lower() for s in STUBBORN):
-        try:
-            from Quartz import (CGEventCreateKeyboardEvent, CGEventSetFlags,
-                                CGEventPostToPid, kCGEventFlagMaskCommand)
-            for down in (True, False):
-                ev = CGEventCreateKeyboardEvent(None, 9, down)  # keycode 9 = V
-                CGEventSetFlags(ev, kCGEventFlagMaskCommand)
-                CGEventPostToPid(pid, ev)
-            print("paste method: CGEventPostToPid", flush=True)
-            return
-        except Exception as e:
-            print(f"PostToPid failed: {type(e).__name__}: {e}", flush=True)
+def _sanitize_for_typing(text: str) -> str:
+    """newlines/tabs would hit Enter/Tab — flatten to spaces."""
+    return text.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+
+
+def _type_text(text: str) -> bool:
+    t = _sanitize_for_typing(text).replace("\\", "\\\\").replace('"', '\\"')
+    r = subprocess.run(
+        ["osascript", "-e",
+         f'tell application "System Events" to keystroke "{t}"'],
+        capture_output=True, timeout=15)
+    if r.returncode == 0:
+        print("deliver method: typing", flush=True)
+        return True
+    print(f"typing failed: {r.stderr.decode()[:120]}", flush=True)
+    return False
+
+
+def _paste_keystroke_osascript() -> bool:
     r = subprocess.run(
         ["osascript", "-e",
          'tell application "System Events" to keystroke "v" using command down'],
         capture_output=True, timeout=5)
     if r.returncode == 0:
-        print("paste method: osascript", flush=True)
-        return
+        print("deliver method: osascript ⌘V", flush=True)
+        return True
     print(f"osascript paste failed ({r.returncode}): {r.stderr.decode()[:120]}", flush=True)
+    return False
+
+
+def _paste_keystroke_pynput() -> None:
     c = keyboard.Controller()
     c.press(keyboard.Key.cmd)
     c.tap("v")
     c.release(keyboard.Key.cmd)
-    print("paste method: pynput", flush=True)
+    print("deliver method: pynput ⌘V", flush=True)
 
 
-def paste_at_cursor(text: str) -> str:
-    """Clipboard swap + synthetic ⌘V. Requires Accessibility for Python.
-    Returns the name of the app that had focus (the paste target)."""
-    target, bundle_id, pid = "?", "", None
+def deliver_text(text: str) -> str:
+    """Get the transcript into the focused field of the frontmost app.
+    Returns the app name. Chromium forks: type directly (they block
+    synthetic paste). Everyone else: clipboard swap + ⌘V."""
+    target, bundle_id = "?", ""
     try:
         from AppKit import NSWorkspace
         app = NSWorkspace.sharedWorkspace().frontmostApplication()
         target = app.localizedName()
         bundle_id = app.bundleIdentifier() or ""
-        pid = app.processIdentifier()
     except Exception as e:
         print(f"frontmost probe failed: {type(e).__name__}: {e}", flush=True)
+
+    if any(s in bundle_id.lower() for s in STUBBORN):
+        if _type_text(text):
+            return target
+        # typing failed: leave transcript on the clipboard for a manual ⌘V
+        subprocess.run(["pbcopy"], input=text.encode(), check=False)
+        notify("press ⌘V to paste", text[:120])
+        return target
+
     old = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
     subprocess.run(["pbcopy"], input=text.encode(), check=False)
     time.sleep(0.05)
     try:
-        _send_paste_keystroke(bundle_id, pid)
+        if not _paste_keystroke_osascript():
+            _paste_keystroke_pynput()
         time.sleep(0.6)  # let the target app read the clipboard
     finally:
         subprocess.run(["pbcopy"], input=old.encode(), check=False)
     return target
+
 
 
 class DictateApp(rumps.App):
@@ -334,11 +353,11 @@ class DictateApp(rumps.App):
 
         if text:
             try:
-                target = paste_at_cursor(text)
-                print(f"paste done -> {target}", flush=True)
+                target = deliver_text(text)
+                print(f"delivered -> {target}", flush=True)
                 notify(f"✓ pasted to {target}", text[:120])
             except Exception as e:
-                notify("paste failed", f"{type(e).__name__}: {str(e)[:80]}")
+                notify("delivery failed", f"{type(e).__name__}: {str(e)[:80]}")
         else:
             notify("no speech detected")
         self._done()
