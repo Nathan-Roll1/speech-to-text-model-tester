@@ -130,7 +130,7 @@ above all apps/spaces) → orange **⏳ transcribing…** → hidden on paste;
 macOS toasts (Python needs notification permission); start/stop beeps;
 +12 dB capture gain.
 
-One-time permissions: System Settings → Privacy & Security →
+One-time permissions: System Settings → Privacy & Security → (full troubleshooting story: `docs/DICTATION-MENUBAR.md`)
 **Accessibility** and **Input Monitoring** → add the venv's *Python*;
 **Microphone** prompts on first press.
 

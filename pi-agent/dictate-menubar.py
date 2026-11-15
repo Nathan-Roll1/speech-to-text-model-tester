@@ -80,6 +80,13 @@ def _sanitize_for_typing(text: str) -> str:
 
 
 def _type_text(text: str) -> bool:
+    # Neutralize held modifiers first — if the user's stop-press (⌘⇧D) is
+    # still physically held when we type, every letter comes out SHIFTED.
+    subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to key up shift\n'
+         'key up command\nkey up option\nkey up control'],
+        capture_output=True, timeout=5)
     t = _sanitize_for_typing(text).replace("\\", "\\\\").replace('"', '\\"')
     r = subprocess.run(
         ["osascript", "-e",
