@@ -46,9 +46,28 @@ speechtester/
   eval_librispeech.py  per-engine evaluation loop
   score.py             jiwer + EnglishTextNormalizer corpus WER
 bin/make_samples.sh    synthetic numbers/code dictation samples (say → afconvert)
+bin/deploy.sh          deploy pi-agent/ files to their live locations
+pi-agent/              deployed dictation stack (source of truth):
+  musci-server.py        resident local ASR server (LaunchAgent, keep-warm)
+  dictate-webview.ts     pi extension: Meta+D → musci/deepgram
+  pi-web-dictate.js      browser overlay: ⌘D local-first dictation, ⌥S speak
+  com.roman.musci-server.plist + overlay installer
 results/               raw hypotheses + manifest from the 202-utt run
 docs/PITFALLS.md       why the first benchmark lied, and the fixes
 ```
+
+## Deployment
+
+The files in `pi-agent/` are the **source of truth** for the live dictation
+stack (server, extension, browser overlay, LaunchAgent). Edit them here, then:
+
+```bash
+./bin/deploy.sh
+```
+
+They are deployed to `~/.pi/agent/`, `~/Library/LaunchAgents/` and the pi-web
+`public/` dir — see `bin/deploy.sh` for the exact map. Always `git commit &&
+git push` after operational updates.
 
 ## Setup (once)
 
