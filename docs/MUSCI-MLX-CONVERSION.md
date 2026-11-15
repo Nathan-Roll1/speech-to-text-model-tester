@@ -43,4 +43,7 @@ mappable.
   Musci accuracy at MLX speed (~4–5× current).
 - Meanwhile the faster local alternative is `Qwen3-ASR-1.7B-8bit` (MLX):
   1.82% WER (vs Musci 1.63%, statistical tie) and ~2–5× lower latency.
-  Available in the dictation server as `engine=qwen`.
+  It was briefly wired into the dictation server as `engine=qwen`, then
+  removed (2026-11-15) — Musci is the daily default and the second resident
+  model's ~2 GB RAM was not justified. Re-add via the server's git history
+  (dual-model version) or the mlx-audio harness in this repo.
