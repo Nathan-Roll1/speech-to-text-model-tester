@@ -17,6 +17,7 @@ with `jiwer` + Whisper's official `EnglishTextNormalizer`.
 | **Qwen3-ASR-1.7B-8bit** (MLX via mlx-audio) | **1.82%** | — | **81 s** |
 | Parakeet-TDT-0.6B-v2 (MLX bf16) | 2.05% | ~1.6–1.7% (test-clean) | 515 s |
 | Voxtral-Mini-4B-Realtime-2602 (MLX 4bit) | 2.51% | — | 1184 s |
+| Deepgram Nova-3 (cloud batch) | 3.11% | 5.2% (AA aggregate, harder mix) | 209 s |
 
 **Methodology validation:** Musci and Parakeet land within ~0.5 pt of their
 published full-set scores — the expected subset-sampling offset. The pipeline
