@@ -23,10 +23,13 @@ TextExpander has always done in browsers. Chromium forks filter synthetic
 
 ## ALL-CAPS bug
 
-`keystroke` inherits **currently-held physical modifiers**. The stop-press
-is ⌘**⇧**D and short utterances transcribe in ~1 s — typing sometimes fired
-while ⇧ was still physically held → every letter shifted. Fix: send
-`key up shift/command/option/control` before typing (in `_type_text`).
+`keystroke` inherits **currently-held physical modifiers**. Users hold the
+stop-press ⌘**⇧**D until the banner changes, so ⇧ is still physically down
+when typing fires ~1 s later → every letter shifted. A **synthetic**
+`key up` cannot override a **physically held** key (macOS tracks HID state
+separately). Real fix: the pynput listener tracks live ⌘/⇧ state
+(`MODS`), and delivery **waits for the physical release** before typing
+(`_wait_mods_released`, 10 s cap).
 
 ## macOS 27 permission saga (exact order matters)
 

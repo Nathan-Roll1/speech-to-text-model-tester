@@ -56,6 +56,26 @@ def beep(sound):
 
 IDLE, REC, BUSY = "idle", "recording", "busy"
 
+# live physical-modifier state (updated by the hotkey listener) — used to
+# wait for ⌘⇧ release before typing, else every letter comes out SHIFTED
+MODS = {"cmd": False, "shift": False}
+
+
+def _update_mods(key, down: bool):
+    name = getattr(key, "name", "") or ""
+    if name.startswith("cmd"):
+        MODS["cmd"] = down
+    if name.startswith("shift"):
+        MODS["shift"] = down
+
+
+def _wait_mods_released(timeout: float = 10.0) -> None:
+    """Block until the user physically releases ⌘/⇧ (or timeout)."""
+    t0 = time.time()
+    while any(MODS.values()) and time.time() - t0 < timeout:
+        time.sleep(0.05)
+    print(f"mods at delivery: {dict(MODS)} (waited {time.time()-t0:.2f}s)", flush=True)
+
 
 def notify(title, text=""):
     print(f"notify: {title} | {text}", flush=True)
@@ -123,6 +143,7 @@ def deliver_text(text: str) -> str:
     """Get the transcript into the focused field of the frontmost app.
     Returns the app name. Chromium forks: type directly (they block
     synthetic paste). Everyone else: clipboard swap + ⌘V."""
+    _wait_mods_released()  # ⌘⇧ still physically held would SHIFT every letter
     target, bundle_id = "?", ""
     try:
         from AppKit import NSWorkspace
@@ -172,7 +193,8 @@ class DictateApp(rumps.App):
             rumps.MenuItem("Quit"),
         ]
 
-        self.listener = keyboard.GlobalHotKeys({HOTKEY: self.toggle})
+        self.listener = keyboard.Listener(
+            on_press=self._on_key_press, on_release=self._on_key_release)
         self.listener.start()
         print("global hotkey registered:", HOTKEY, flush=True)
 
@@ -240,6 +262,15 @@ class DictateApp(rumps.App):
         self._ovq.put((op, text, rgb))
 
     # ---------------- core toggle ----------------
+
+    def _on_key_press(self, key):
+        _update_mods(key, True)
+        ch = getattr(key, "char", None)
+        if ch in ("d", "D") and MODS["cmd"] and MODS["shift"]:
+            self.toggle()
+
+    def _on_key_release(self, key):
+        _update_mods(key, False)
 
     def toggle(self, _=None):
         print(f"hotkey pressed, state={self.state}", flush=True)
