@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.roman.dictate-menubar</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/roman/.pi/agent/venvs/asr/bin/python</string>
+    <string>/Users/roman/.pi/agent/bin/dictate-menubar.py</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/roman/.pi/agent/logs/dictate-menubar.log</string>
+  <key>StandardErrorPath</key><string>/Users/roman/.pi/agent/logs/dictate-menubar.err.log</string>
+</dict>
+</plist>

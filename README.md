@@ -119,6 +119,20 @@ python -m speechtester.score \
 Override weights with `--model`. Add an engine by appending a loader/transcriber
 pair in `speechtester/engines.py`.
 
+## System-wide dictation (any app)
+
+`pi-agent/dictate-menubar.py` runs as a menu-bar app (LaunchAgent
+`com.roman.dictate-menubar`). **⌘⇧D anywhere** (FSNotes, Mail, browser…)
+toggles recording; on stop the transcript is pasted at the cursor
+(clipboard swap + synthetic ⌘V). Same local Musci engine, audio stays on
+the machine.
+
+One-time permissions: System Settings → Privacy & Security →
+**Accessibility** and **Input Monitoring** → add the venv's *Python*;
+**Microphone** prompts on first press.
+
+Deploy with `./bin/deploy.sh`.
+
 ## Notes
 
 - Python 3.13, Apple M4 Pro / 24 GB used for the shipped results; anything
