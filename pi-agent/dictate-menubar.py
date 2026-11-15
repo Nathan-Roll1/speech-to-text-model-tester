@@ -65,6 +65,20 @@ def notify(title, text=""):
         print(f"notify failed: {type(e).__name__}: {e}", flush=True)
 
 
+def _send_paste_keystroke() -> None:
+    """Synthetic ⌘V. Chromium ignores raw CGEvent keystrokes, so try System
+    Events first (what text-expanders use), falling back to pynput."""
+    script = 'tell application "System Events" to keystroke "v" using command down'
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+    if r.returncode == 0:
+        return
+    print(f"osascript paste failed ({r.returncode}): {r.stderr.decode()[:120]}", flush=True)
+    c = keyboard.Controller()
+    c.press(keyboard.Key.cmd)
+    c.tap("v")
+    c.release(keyboard.Key.cmd)
+
+
 def paste_at_cursor(text: str) -> str:
     """Clipboard swap + synthetic ⌘V. Requires Accessibility for Python.
     Returns the name of the app that had focus (the paste target)."""
@@ -78,10 +92,7 @@ def paste_at_cursor(text: str) -> str:
     subprocess.run(["pbcopy"], input=text.encode(), check=False)
     time.sleep(0.05)
     try:
-        c = keyboard.Controller()
-        c.press(keyboard.Key.cmd)
-        c.tap("v")
-        c.release(keyboard.Key.cmd)
+        _send_paste_keystroke()
         time.sleep(0.6)  # let the target app read the clipboard
     finally:
         subprocess.run(["pbcopy"], input=old.encode(), check=False)
