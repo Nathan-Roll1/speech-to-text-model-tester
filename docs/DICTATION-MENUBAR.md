@@ -92,6 +92,23 @@ clipboard-paste path.
 - System Events keystroke with `\n` would hit **Return** (submits search
   boxes) — transcripts are flattened to single-line before typing.
 
+## App-shortcut conflicts (⌘⇧D double-fires)
+
+A global event tap is listen-only — the keystroke *also* reaches the
+focused app. If the app binds ⌘⇧D itself, the action fires alongside
+dictation. Example: FSNotes binds **File ▸ Duplicate** to ⌘⇧D → every
+dictation duplicated the selected note + alert beep (disabled/no-op
+menu items beep). Fix (no app restart of the agent needed):
+
+```bash
+defaults write co.fluder.FSNotes NSUserKeyEquivalents -dict-add "Duplicate" "^~D"
+# then quit & reopen the app
+```
+
+Verify bindings live via System Events (`AXMenuItemCmdChar` /
+`AXMenuItemCmdModifiers` per menu item). Chrome-family browsers bind
+⌘⇧D to Bookmark-All-Tabs — usually harmless, but same remedy applies.
+
 ## Ops
 
 ```bash
