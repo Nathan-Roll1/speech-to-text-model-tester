@@ -105,6 +105,17 @@ their enum values (0xFFFFFFFE…) make `CGEventMaskBit` overflow in
 Python and `CGEventTapCreate` rejects the mask ("depythonifying
 'unsigned long long'"). Use a watchdog `rumps.Timer` calling
 `CGEventTapEnable(tap, True)` every few s instead.
+
+**Why the watchdog is warranted (review verdict):** macOS silently
+disables any event tap whose callback stalls (~1 s). A dead tap = dead
+hotkey + the app-level beep returns — exactly the failures this saga
+was full of. Primary fix: keep the callback sub-millisecond — the sox
+`terminate()+wait(3)` teardown moved out of `stop()` into the
+`_finish` worker thread. Watchdog remains as a 6-line idempotent
+dead-man's switch (`CGEventTapEnable(tap, True)` is a no-op when the
+tap is healthy) for pathological stalls (fork storms, system hiccups).
+The "proper" alternative — receiving `kCGEventTapDisabledBy*` events —
+is the broken-in-pyobjc path above.
 (`kCGEventTapOptionDefault`, returns `None` for ⌘⇧D) — the keystroke
 triggers dictation and is **swallowed before any app sees it**. No alert
 beep, no double-actions (FSNotes Duplicate, Chrome Bookmark-All-Tabs, …)

@@ -20,7 +20,6 @@ import os
 import queue
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 import urllib.request
@@ -38,6 +37,11 @@ try:
 except Exception as _e:
     print(f"AppKit overlay unavailable: {_e}", flush=True)
     HAS_APPKIT = False
+
+try:
+    from Quartz import CGEventTapEnable
+except Exception:
+    CGEventTapEnable = None
 
 MUSCI_URL = "http://127.0.0.1:31046/transcribe"
 HOTKEY = "<cmd>+<shift>+d"
@@ -207,12 +211,8 @@ class DictateApp(rumps.App):
         print("overlay pump started, AppKit:", HAS_APPKIT, flush=True)
 
     def _tap_watchdog(self, _sender=None):
-        if self._tap_holder:
-            try:
-                from Quartz import CGEventTapEnable
-                CGEventTapEnable(self._tap_holder[0], True)
-            except Exception:
-                pass
+        if self._tap_holder and CGEventTapEnable:
+            CGEventTapEnable(self._tap_holder[0], True)  # no-op if already enabled
 
     # ---------------- visual overlay (main thread only) ----------------
 
@@ -365,13 +365,8 @@ class DictateApp(rumps.App):
         self.state = BUSY
         self.title = "⏳"
         self._ov("show", "⏳ transcribing…", (1.0, 0.60, 0.0))
-        if self.proc:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=3)
-            except Exception:
-                self.proc.kill()
-            self.proc = None
+        # proc teardown happens in _finish (worker thread) — the tap callback
+        # must return in milliseconds or macOS disables the tap
         threading.Thread(target=self._finish, daemon=True).start()
 
     # ---------------- menu callbacks ----------------
@@ -406,6 +401,13 @@ class DictateApp(rumps.App):
     # ---------------- transcribe + paste ----------------
 
     def _finish(self):
+        if self.proc:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except Exception:
+                self.proc.kill()
+            self.proc = None
         time.sleep(0.35)  # let sox finalize the wav header
         if self.cancelled:
             self._done()
