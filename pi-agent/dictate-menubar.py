@@ -52,14 +52,6 @@ IDLE, REC, BUSY = "idle", "recording", "busy"
 MODS = {"cmd": False, "shift": False}
 
 
-def _update_mods(key, down: bool):
-    name = getattr(key, "name", "") or ""
-    if name.startswith("cmd"):
-        MODS["cmd"] = down
-    if name.startswith("shift"):
-        MODS["shift"] = down
-
-
 def _wait_mods_released(timeout: float = 10.0) -> None:
     """Block until the user physically releases ⌘/⇧ (or timeout)."""
     t0 = time.time()
@@ -202,9 +194,7 @@ class DictateApp(rumps.App):
             rumps.MenuItem("Quit"),
         ]
 
-        self.listener = keyboard.Listener(
-            on_press=self._on_key_press, on_release=self._on_key_release)
-        self.listener.start()
+        threading.Thread(target=self._run_event_tap, daemon=True).start()
         print("global hotkey registered:", HOTKEY, flush=True)
 
         # main-thread pump that applies overlay changes
@@ -272,14 +262,47 @@ class DictateApp(rumps.App):
 
     # ---------------- core toggle ----------------
 
-    def _on_key_press(self, key):
-        _update_mods(key, True)
-        ch = getattr(key, "char", None)
-        if ch in ("d", "D") and MODS["cmd"] and MODS["shift"]:
-            self.toggle()
+    def _run_event_tap(self):
+        """Suppressing CGEventTap: ⌘⇧D triggers dictation AND is swallowed —
+        apps never see the combo, so no alert beep and no double-actions
+        (FSNotes Duplicate, Chrome bookmark-all-tabs, …)."""
+        try:
+            from Quartz import (CGEventTapCreate, kCGSessionEventTap,
+                                kCGHeadInsertEventTap, kCGEventTapOptionDefault,
+                                CGEventMaskBit, kCGEventKeyDown, kCGEventFlagsChanged,
+                                CFMachPortCreateRunLoopSource, CFRunLoopGetCurrent,
+                                CFRunLoopAddSource, CFRunLoopRun,
+                                CGEventGetIntegerValueField, kCGKeyboardEventKeycode,
+                                CGEventGetFlags, kCGEventFlagMaskCommand,
+                                kCGEventFlagMaskShift)
+        except Exception as e:
+            print(f"Quartz tap import failed: {e}", flush=True)
+            return
+        mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventFlagsChanged)
 
-    def _on_key_release(self, key):
-        _update_mods(key, False)
+        def callback(_proxy, etype, event, _refcon):
+            flags = CGEventGetFlags(event)
+            MODS["cmd"] = bool(flags & kCGEventFlagMaskCommand)
+            MODS["shift"] = bool(flags & kCGEventFlagMaskShift)
+            if etype == kCGEventKeyDown:
+                code = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+                if code == 9 and MODS["cmd"] and MODS["shift"]:  # keycode 9 = D
+                    try:
+                        self.toggle()
+                    except Exception as e:
+                        print(f"toggle failed: {type(e).__name__}: {e}", flush=True)
+                    return None  # swallow — apps never see ⌘⇧D
+            return event
+
+        tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap,
+                               kCGEventTapOptionDefault, mask, callback, None)
+        if tap is None:
+            print("event tap create FAILED (accessibility?) — hotkey dead", flush=True)
+            return
+        source = CFMachPortCreateRunLoopSource(None, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, 0)
+        print("suppressing event tap active", flush=True)
+        CFRunLoopRun()
 
     def toggle(self, _=None):
         print(f"hotkey pressed, state={self.state}", flush=True)

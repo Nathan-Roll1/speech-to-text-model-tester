@@ -94,20 +94,20 @@ clipboard-paste path.
 
 ## App-shortcut conflicts (⌘⇧D double-fires)
 
-A global event tap is listen-only — the keystroke *also* reaches the
-focused app. If the app binds ⌘⇧D itself, the action fires alongside
-dictation. Example: FSNotes binds **File ▸ Duplicate** to ⌘⇧D → every
-dictation duplicated the selected note + alert beep (disabled/no-op
-menu items beep). Fix (no app restart of the agent needed):
+**Solved generically**: the hotkey now uses a *suppressing* CGEventTap
+(`kCGEventTapOptionDefault`, returns `None` for ⌘⇧D) — the keystroke
+triggers dictation and is **swallowed before any app sees it**. No alert
+beep, no double-actions (FSNotes Duplicate, Chrome Bookmark-All-Tabs, …)
+anywhere. Requires Accessibility (already granted for the tap itself).
 
-```bash
-defaults write co.fluder.FSNotes NSUserKeyEquivalents -dict-add "Duplicate" "^~D"
-# then quit & reopen the app
-```
-
-Verify bindings live via System Events (`AXMenuItemCmdChar` /
-`AXMenuItemCmdModifiers` per menu item). Chrome-family browsers bind
-⌘⇧D to Bookmark-All-Tabs — usually harmless, but same remedy applies.
+History: the original pynput listener was listen-only, so ⌘⇧D *also*
+reached apps. FSNotes' File ▸ Duplicate was bound to it (every dictation
+duplicated the note); unbound via
+`defaults write co.fluder.FSNotes NSUserKeyEquivalents -dict-add "Duplicate" "^~D"`.
+Unbound apps then *beeped* (macOS alert sound for unhandled key
+equivalents) — the beep existed only because apps received the combo.
+Verify app bindings live via System Events (`AXMenuItemCmdChar`,
+`AXMenuItemCmdModifiers`).
 
 ## Ops
 
