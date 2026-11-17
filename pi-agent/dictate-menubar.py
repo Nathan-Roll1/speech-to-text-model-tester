@@ -44,15 +44,6 @@ HOTKEY = "<cmd>+<shift>+d"
 REC_BIN = shutil.which("rec") or "/opt/homebrew/bin/rec"  # launchd PATH has no /opt/homebrew/bin
 REC_ERR_LOG = os.path.expanduser("~/.pi/agent/logs/dictate-menubar-rec.err")
 WAV_PATH = os.path.expanduser("~/.pi/agent/logs/dictate-last.wav")
-AFPLAY = "/usr/bin/afplay"
-
-
-def beep(sound):
-    """Audible state cue: Tink=start, Pop=stop. Non-blocking."""
-    path = f"/System/Library/Sounds/{sound}.aiff"
-    if os.path.exists(AFPLAY) and os.path.exists(path):
-        subprocess.Popen([AFPLAY, path],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 IDLE, REC, BUSY = "idle", "recording", "busy"
 
@@ -306,7 +297,6 @@ class DictateApp(rumps.App):
             os.remove(self.wav)
         except OSError:
             pass
-        beep("Tink")
         try:
             self._rec_err = open(REC_ERR_LOG, "ab")
             self.proc = subprocess.Popen(
@@ -327,7 +317,6 @@ class DictateApp(rumps.App):
         self.state = BUSY
         self.title = "⏳"
         self._ov("show", "⏳ transcribing…", (1.0, 0.60, 0.0))
-        beep("Pop")
         if self.proc:
             self.proc.terminate()
             try:

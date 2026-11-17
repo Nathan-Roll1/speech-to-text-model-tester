@@ -65,7 +65,6 @@ clipboard-paste path.
 - **Toasts**: `osascript display notification` — the one channel that
   displays banners on this machine. rumps notifications were **silently
   invisible** even with "Python" enabled in System Settings → Notifications.
-- **Beeps**: `afplay /System/Library/Sounds/{Tink,Pop}.aiff` on start/stop.
 
 ## Debug plumbing (all failures were invisible by default)
 
