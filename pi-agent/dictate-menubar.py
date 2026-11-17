@@ -200,7 +200,19 @@ class DictateApp(rumps.App):
         # main-thread pump that applies overlay changes
         self._timer = rumps.Timer(self._drain_overlay, 0.10)
         self._timer.start()
+        # tap watchdog: re-enable the event tap if macOS disabled it (timeout)
+        self._tap_holder = []
+        self._watchdog = rumps.Timer(self._tap_watchdog, 5.0)
+        self._watchdog.start()
         print("overlay pump started, AppKit:", HAS_APPKIT, flush=True)
+
+    def _tap_watchdog(self, _sender=None):
+        if self._tap_holder:
+            try:
+                from Quartz import CGEventTapEnable
+                CGEventTapEnable(self._tap_holder[0], True)
+            except Exception:
+                pass
 
     # ---------------- visual overlay (main thread only) ----------------
 
@@ -270,15 +282,22 @@ class DictateApp(rumps.App):
             from Quartz import (CGEventTapCreate, kCGSessionEventTap,
                                 kCGHeadInsertEventTap, kCGEventTapOptionDefault,
                                 CGEventMaskBit, kCGEventKeyDown, kCGEventFlagsChanged,
+                                CGEventTapEnable,
                                 CFMachPortCreateRunLoopSource, CFRunLoopGetCurrent,
                                 CFRunLoopAddSource, CFRunLoopRun,
                                 CGEventGetIntegerValueField, kCGKeyboardEventKeycode,
                                 CGEventGetFlags, kCGEventFlagMaskCommand,
                                 kCGEventFlagMaskShift)
+            from Foundation import kCFRunLoopCommonModes
         except Exception as e:
             print(f"Quartz tap import failed: {e}", flush=True)
             return
+        # NOTE: do NOT add kCGEventTapDisabledBy* to the mask — their enum
+        # values (0xFFFFFFFE…) make CGEventMaskBit overflow in pyobjc and
+        # CGEventTapCreate rejects the mask. A watchdog timer re-enables the
+        # tap instead (see self._tap_watchdog).
         mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventFlagsChanged)
+        tap_holder = []
 
         def callback(_proxy, etype, event, _refcon):
             flags = CGEventGetFlags(event)
@@ -299,10 +318,16 @@ class DictateApp(rumps.App):
         if tap is None:
             print("event tap create FAILED (accessibility?) — hotkey dead", flush=True)
             return
+        tap_holder.append(tap)
+        self._tap_holder = tap_holder
         source = CFMachPortCreateRunLoopSource(None, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, 0)
+        rl = CFRunLoopGetCurrent()
+        CFRunLoopAddSource(rl, source, kCFRunLoopCommonModes)
         print("suppressing event tap active", flush=True)
-        CFRunLoopRun()
+        try:
+            CFRunLoopRun()
+        except Exception as e:
+            print(f"runloop died: {type(e).__name__}: {e}", flush=True)
 
     def toggle(self, _=None):
         print(f"hotkey pressed, state={self.state}", flush=True)

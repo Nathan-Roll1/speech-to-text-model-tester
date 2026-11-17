@@ -95,6 +95,16 @@ clipboard-paste path.
 ## App-shortcut conflicts (⌘⇧D double-fires)
 
 **Solved generically**: the hotkey now uses a *suppressing* CGEventTap
+
+pyobjc pitfalls hit here: (1) `CFRunLoopAddSource(rl, source, 0)` —
+integer 0 is not a valid run-loop mode; must pass
+`kCFRunLoopCommonModes` (from `Foundation`), else the tap creates fine
+but hears **nothing** (symptom: hotkey dead + apps beep). (2) Never put
+`kCGEventTapDisabledByTimeout`/`...ByUserInput` into the event mask —
+their enum values (0xFFFFFFFE…) make `CGEventMaskBit` overflow in
+Python and `CGEventTapCreate` rejects the mask ("depythonifying
+'unsigned long long'"). Use a watchdog `rumps.Timer` calling
+`CGEventTapEnable(tap, True)` every few s instead.
 (`kCGEventTapOptionDefault`, returns `None` for ⌘⇧D) — the keystroke
 triggers dictation and is **swallowed before any app sees it**. No alert
 beep, no double-actions (FSNotes Duplicate, Chrome Bookmark-All-Tabs, …)
